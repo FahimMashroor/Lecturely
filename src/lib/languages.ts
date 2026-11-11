@@ -1,0 +1,21 @@
+// [ISO 639-1 code, display name]. "" = detect automatically.
+export const LANGUAGES: [string, string][] = [
+  ["", "Detect automatically"],
+  ["en", "English"], ["bn", "Bangla"], ["hi", "Hindi"], ["ur", "Urdu"], ["ta", "Tamil"], ["te", "Telugu"],
+  ["ml", "Malayalam"], ["kn", "Kannada"], ["mr", "Marathi"], ["gu", "Gujarati"], ["pa", "Punjabi"], ["or", "Odia"],
+  ["as", "Assamese"], ["ne", "Nepali"], ["si", "Sinhala"], ["ps", "Pashto"], ["fa", "Persian"], ["ar", "Arabic"],
+  ["he", "Hebrew"], ["tr", "Turkish"], ["ku", "Kurdish"], ["az", "Azerbaijani"], ["kk", "Kazakh"], ["uz", "Uzbek"],
+  ["hy", "Armenian"], ["ka", "Georgian"],
+  ["sv", "Swedish"], ["no", "Norwegian"], ["da", "Danish"], ["fi", "Finnish"], ["is", "Icelandic"], ["de", "German"],
+  ["fr", "French"], ["es", "Spanish"], ["ca", "Catalan"], ["eu", "Basque"], ["gl", "Galician"], ["pt", "Portuguese"],
+  ["it", "Italian"], ["nl", "Dutch"], ["lb", "Luxembourgish"], ["ga", "Irish"], ["cy", "Welsh"], ["mt", "Maltese"],
+  ["pl", "Polish"], ["cs", "Czech"], ["sk", "Slovak"], ["hu", "Hungarian"], ["ro", "Romanian"], ["bg", "Bulgarian"],
+  ["el", "Greek"], ["sr", "Serbian"], ["hr", "Croatian"], ["bs", "Bosnian"], ["sl", "Slovenian"], ["mk", "Macedonian"],
+  ["sq", "Albanian"], ["et", "Estonian"], ["lv", "Latvian"], ["lt", "Lithuanian"], ["uk", "Ukrainian"], ["be", "Belarusian"],
+  ["ru", "Russian"],
+  ["zh", "Chinese (Mandarin)"], ["yue", "Cantonese"], ["ja", "Japanese"], ["ko", "Korean"], ["mn", "Mongolian"],
+  ["vi", "Vietnamese"], ["th", "Thai"], ["lo", "Lao"], ["km", "Khmer"], ["my", "Burmese"], ["id", "Indonesian"],
+  ["ms", "Malay"], ["tl", "Filipino"],
+  ["sw", "Swahili"], ["am", "Amharic"], ["so", "Somali"], ["ha", "Hausa"], ["yo", "Yoruba"], ["ig", "Igbo"],
+  ["zu", "Zulu"], ["xh", "Xhosa"], ["af", "Afrikaans"], ["mg", "Malagasy"], ["rw", "Kinyarwanda"],
+];

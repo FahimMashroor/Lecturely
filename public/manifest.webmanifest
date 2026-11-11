@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "Lecturely by Fahim Mashroor",
+  "short_name": "Lecturely",
+  "description": "Live lecture transcripts in 90+ languages, with notes, summaries and lessons.",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#012a6b",
+  "theme_color": "#012a6b",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
