@@ -2,12 +2,6 @@
 function refused() {
   if (!import.meta.env.PROD) return true;
   try { if (window.self !== window.top) return true; } catch { return true; }
-  const h = window.location.hostname.toLowerCase();
-  const label = h.split(".")[0] ?? "";
-  const previewHost = /\.(lovable\.app|gpt-eng\.com|gptengineer\.run)$/.test(h) &&
-    (/^(?:id-preview|preview)(?:-[a-z0-9]+)?--.+$/.test(label) || /^project--.+-dev$/.test(label));
-  if (previewHost) return true;
-  if (/(^|\.)lovableproject(-dev)?\.com$/.test(h) || /(^|\.)beta\.lovable\.dev$/.test(h)) return true;
   if (new URLSearchParams(window.location.search).get("sw") === "off") return true;
   return false;
 }

@@ -19,7 +19,6 @@
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@huggingface/transformers": "^4.3.2",
-    "@lovable.dev/ai-gateway": "^0.1.11",
     "@mlc-ai/web-llm": "^0.2.87",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -76,7 +75,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
-    "@lovable.dev/vite-tanstack-config": "2.26.5",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.0.0",
     "@types/node": "^22.16.5",
