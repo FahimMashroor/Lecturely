@@ -8,7 +8,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.print.PrintAttributes;
 import android.print.PrintManager;
 import android.util.Base64;
@@ -44,11 +47,28 @@ public class MainActivity extends Activity {
     private static final String START = "https://" + HOST + "/index.html";
     private static final int ASK_MIC = 1;
     private static final int PICK_SAVE_PLACE = 2;
+    private static final int ASK_NOTIFY = 3;
 
     private WebView web;
     private WebView printView;
     private PermissionRequest waitingMicRequest;
     private byte[] waitingFile;
+    private boolean working;
+    private boolean askedNotify;
+
+    /**
+     * While Lecturely records, this nudges the page once a second. A phone slows
+     * down the page's own clock when the app is in the background, and the
+     * page uses these nudges to start and stop its 30-second pieces on time.
+     */
+    private final Handler clock = new Handler(Looper.getMainLooper());
+    private final Runnable tick = new Runnable() {
+        @Override public void run() {
+            if (!working || web == null) return;
+            web.evaluateJavascript("window.lecturelyTick&&window.lecturelyTick()", null);
+            clock.postDelayed(this, 1000);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle saved) {
@@ -64,6 +84,9 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
         s.setSupportMultipleWindows(false);
+
+        // Keep the page running at full importance even when it is out of sight.
+        if (Build.VERSION.SDK_INT >= 26) web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
 
         web.addJavascriptInterface(new Bridge(), "LecturelyApp");
         web.setWebViewClient(new Pages());
@@ -87,6 +110,9 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        working = false;
+        clock.removeCallbacks(tick);
+        RecordingService.show(this, "");
         web.destroy();
         super.onDestroy();
     }
@@ -224,6 +250,33 @@ public class MainActivity extends Activity {
                 @Override public void run() {
                     if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            });
+        }
+
+        /**
+         * The page says what Lecturely is doing: "Recording your lecture",
+         * "Finishing the transcript", or "" when it is done. While it works, it
+         * keeps going in the background and a notification says so.
+         */
+        @JavascriptInterface
+        public void setWorking(final String status) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    boolean on = status != null && !status.isEmpty();
+                    // Android 13 and newer ask the person before an app may show notifications.
+                    if (on && !askedNotify && Build.VERSION.SDK_INT >= 33
+                            && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                        askedNotify = true;
+                        requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, ASK_NOTIFY);
+                    }
+                    try {
+                        RecordingService.show(MainActivity.this, on ? status : "");
+                    } catch (Exception e) {
+                        // Android refused to start it. Recording still works while the app is on screen.
+                    }
+                    if (on && !working) { working = true; clock.postDelayed(tick, 1000); }
+                    if (!on) { working = false; clock.removeCallbacks(tick); }
                 }
             });
         }

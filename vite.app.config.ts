@@ -14,5 +14,7 @@ export default defineConfig({
     "import.meta.env.VITE_APP": JSON.stringify("1"),
     "import.meta.env.VITE_API_BASE": JSON.stringify(process.env.LECTURELY_SERVER ?? ""),
   },
+  // The speech helper (src/lib/speech.worker.ts) is built as a modern module.
+  worker: { format: "es" },
   build: { outDir: path.resolve(__dirname, "android/build/www"), emptyOutDir: true, chunkSizeWarningLimit: 30000 },
 });

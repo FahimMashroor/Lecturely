@@ -1,10 +1,13 @@
 // Small helpers for the Android app version of Lecturely.
 // In the Android app the screens run inside the app itself, and the app gives
-// the page a few extra abilities (save a file, print, keep the screen awake).
+// the page a few extra abilities (save a file, print, keep recording in the background).
 type AppBridge = {
   saveFile: (name: string, mime: string, base64: string) => void;
   printHtml: (title: string, html: string) => void;
   keepAwake: (on: boolean) => void;
+  /** Tells the app what Lecturely is doing ("" = nothing). While it works, the
+   *  app keeps running in the background and shows a notification. */
+  setWorking?: (status: string) => void;
   copy: (text: string) => void;
 };
 

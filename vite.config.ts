@@ -14,6 +14,8 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    // The speech helper (src/lib/speech.worker.ts) is built as a modern module.
+    worker: { format: "es" },
     plugins: [
       VitePWA({
         strategies: "generateSW",

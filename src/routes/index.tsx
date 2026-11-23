@@ -5,7 +5,7 @@ import { LANGUAGES } from "@/lib/languages";
 import { downloadDoc, downloadTxt, savePdf } from "@/lib/export";
 import { buildPrompt, parseLesson } from "@/lib/prompts";
 import { mergeOverlap } from "@/lib/merge";
-import { api, appBridge, copyText, hasServer } from "@/lib/native";
+import { api, appBridge, copyText, hasServer, isApp } from "@/lib/native";
 import { InstallButton } from "@/components/InstallButton";
 import { canWriteHere, getPacks, loadNotes, loadSpeech, rememberPacks, transcribeOffline, writeOffline } from "@/lib/offline";
 
@@ -113,7 +113,14 @@ function Index() {
   const textRef = useRef("");
   const queueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingRef = useRef(0);
-  const endRef = useRef<HTMLDivElement>(null);
+  const [pending, setPending] = useState(0);
+  // The transcript box. It follows new text only while you are already at its
+  // bottom, so reading earlier parts is never interrupted.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  // The timetable of the recording: when the next 30-second piece starts, and
+  // when each running piece stops.
+  const planRef = useRef<{ stream: MediaStream; run: number; live: Set<MediaRecorder>; nextAt: number; stops: Map<MediaRecorder, number>; timer: number } | null>(null);
   const laterRef = useRef<{ blob: Blob; mark: string }[]>([]);
   const [online, setOnline] = useState(true);
   const [laterCount, setLaterCount] = useState(0);
@@ -178,10 +185,19 @@ function Index() {
   };
 
   useEffect(() => { textRef.current = finalText; }, [finalText]);
-  useEffect(() => { if (listening) endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [finalText, interim, listening]);
+  useEffect(() => {
+    const box = boxRef.current;
+    if (listening && box && followRef.current) box.scrollTop = box.scrollHeight;
+  }, [finalText, interim, listening]);
+
+  // In the Android app, recording keeps going in the background and with the
+  // screen off. The app shows a notification while Lecturely is working.
+  useEffect(() => {
+    appBridge()?.setWorking?.(listening ? "Recording your lecture" : pending ? "Finishing the transcript" : "");
+  }, [listening, pending > 0]);
 
   const send = (blob: Blob) => {
-    pendingRef.current++; setInterim(" Writing…");
+    pendingRef.current++; setPending(pendingRef.current); setInterim(" Writing…");
     queueRef.current = queueRef.current.then(async () => {
       try {
         if (hasServer && navigator.onLine) {
@@ -204,13 +220,14 @@ function Index() {
           laterRef.current.push({ blob, mark }); setLaterCount(laterRef.current.length);
         }
       } catch { setErr("A part of the lecture couldn't be transcribed."); }
-      finally { pendingRef.current--; if (!pendingRef.current) setInterim(""); }
+      finally { pendingRef.current--; setPending(pendingRef.current); if (!pendingRef.current) setInterim(""); }
     });
   };
 
-  const recordPiece = (stream: MediaStream, run: number, live: Set<MediaRecorder>) => {
+  // Starts one 30-second piece of recording.
+  const startPiece = (plan: NonNullable<typeof planRef.current>) => {
+    const { stream, run, live } = plan;
     const active = () => wantRef.current && runRef.current === run;
-    if (!active()) return;
     const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
     const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
     const parts: Blob[] = [];
@@ -224,15 +241,40 @@ function Index() {
         if (streamRef.current === stream) streamRef.current = null;
       }
     };
+    // The pieces that are still running stop a little after this one starts,
+    // so the pieces overlap and no word is lost between them.
+    const stopAt = Date.now() + OVERLAP_MS;
+    live.forEach((r) => { if (!plan.stops.has(r)) plan.stops.set(r, stopAt); });
     live.add(rec);
     rec.start();
-    // Start the next piece before this one stops, so the pieces overlap.
-    setTimeout(() => recordPiece(stream, run, live), PIECE_MS);
-    setTimeout(() => { if (rec.state === "recording") rec.stop(); }, PIECE_MS + OVERLAP_MS);
   };
 
+  // Checks the timetable: starts and stops pieces when their time has come.
+  // It runs twice a second, and the Android app also calls it every second,
+  // because a phone slows down timers of apps that are in the background.
+  const pump = () => {
+    const plan = planRef.current;
+    if (!plan) return;
+    const now = Date.now();
+    if (wantRef.current && runRef.current === plan.run && now >= plan.nextAt) {
+      plan.nextAt = Math.max(plan.nextAt + PIECE_MS, now + 1000);
+      startPiece(plan);
+    }
+    plan.stops.forEach((at, r) => {
+      if (now >= at) { plan.stops.delete(r); if (r.state === "recording") r.stop(); }
+    });
+  };
+  useEffect(() => {
+    const w = window as unknown as { lecturelyTick?: () => void };
+    w.lecturelyTick = () => pump();
+    return () => { delete w.lecturelyTick; };
+  });
+
+  // On the website, keep the screen awake while recording, because a browser
+  // pauses the microphone when the screen turns off. The Android app doesn't
+  // need this: it keeps recording with the screen off.
   const keepAwake = async () => {
-    appBridge()?.keepAwake(true);
+    if (isApp) return;
     try {
       const wl = (navigator as { wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } }).wakeLock;
       if (wl && !wakeRef.current) {
@@ -242,13 +284,13 @@ function Index() {
       }
     } catch {}
   };
-  const letSleep = () => { appBridge()?.keepAwake(false); wakeRef.current?.release().catch(() => {}); wakeRef.current = null; };
+  const letSleep = () => { wakeRef.current?.release().catch(() => {}); wakeRef.current = null; };
 
   // The phone drops the screen lock when you switch apps; take it again when
   // you come back, and remember that the app was hidden during the recording.
   useEffect(() => {
     const onVis = () => {
-      if (!wantRef.current) return;
+      if (!wantRef.current || isApp) return;
       if (document.visibilityState === "visible") keepAwake(); else setAway(true);
     };
     document.addEventListener("visibilitychange", onVis);
@@ -276,13 +318,17 @@ function Index() {
     // A new recording never overlaps the previous one, so don't merge across it.
     mergeableRef.current = false;
     wantRef.current = true; setListening(true); setAway(false);
+    followRef.current = true;
     keepAwake();
-    recordPiece(stream, run, live);
+    if (planRef.current) clearInterval(planRef.current.timer);
+    planRef.current = { stream, run, live, nextAt: Date.now(), stops: new Map(), timer: window.setInterval(pump, 500) };
+    pump();
   };
 
   const stop = () => {
     wantRef.current = false;
     letSleep();
+    if (planRef.current) { clearInterval(planRef.current.timer); planRef.current = null; }
     recsRef.current.forEach((r) => { if (r.state === "recording") r.stop(); });
     setListening(false);
   };
@@ -382,7 +428,9 @@ function Index() {
         <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
           <section className="min-w-0 space-y-6">
             {!supported && <p className="rounded-2xl bg-destructive/10 p-4 text-sm text-destructive">Live transcription needs Chrome, Edge or Safari. Please open this page in one of those.</p>}
-            {listening && <p className="rounded-2xl bg-secondary p-4 text-sm text-secondary-foreground">Keep Lecturely open on the screen while it records. On phones, switching to another app or locking the screen can pause the microphone.</p>}
+            {listening && <p className="rounded-2xl bg-secondary p-4 text-sm text-secondary-foreground">{isApp
+              ? "You can scroll, use other apps or turn the screen off. Lecturely keeps recording and shows a notification while it works. To save, tap the red button to stop first."
+              : "Keep Lecturely open on the screen while it records. On phones, switching to another app or locking the screen can pause the microphone."}</p>}
             {away && !listening && <p className="rounded-2xl bg-accent p-4 text-sm text-accent-foreground">Lecturely was in the background during the recording, so some parts may be missing. Next time, keep it open on the screen.</p>}
             {err && <p className="rounded-2xl bg-destructive/10 p-4 text-sm text-destructive">{err}</p>}
             {!online && hasServer && <p className="rounded-2xl bg-accent p-4 text-sm text-accent-foreground">You're offline.{canWriteHere(lang) ? " Lectures are written on this device and improved automatically when you're back online." : " Recording continues and will be written when you're back online."}</p>}
@@ -405,7 +453,7 @@ function Index() {
                 </span>
                 <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">{words} words</span>
               </div>
-              <div className="h-[48vh] overflow-y-auto px-6 py-5 font-serif text-lg leading-[1.85]">
+              <div ref={boxRef} onScroll={(e) => { const b = e.currentTarget; followRef.current = b.scrollHeight - b.scrollTop - b.clientHeight < 60; }} className="h-[48vh] overflow-y-auto px-6 py-5 font-serif text-lg leading-[1.85]">
                 {!finalText && !interim && (
                   <div className="grid h-full place-items-center text-center text-muted-foreground">
                     <div><BookOpen className="mx-auto mb-3 h-10 w-10 text-primary-glow/50" /><p className="font-sans">Tap the orange button and the lecture appears here,<br />about every 30 seconds.</p></div>
@@ -413,7 +461,6 @@ function Index() {
                 )}
                 <span className="whitespace-pre-wrap">{finalText}</span>
                 <span className="text-muted-foreground">{interim}</span>
-                <div ref={endRef} />
               </div>
               <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/50 px-4 py-3">
                 <button onClick={save} disabled={!finalText || listening} className={`${btn} bg-primary text-primary-foreground hover:bg-primary/90`}><Save className="h-4 w-4" />Save</button>
