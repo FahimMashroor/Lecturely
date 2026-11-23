@@ -4,7 +4,8 @@ This folder turns Lecturely into an Android app file (`Lecturely.apk`).
 
 - `web/` - the starting page of the app. It shows the same screen as the website.
 - `app/` - the small Android part: it shows the screens, asks for the microphone,
-  saves Word/text files, prints to PDF and keeps the screen on while recording.
+  saves Word/text files, prints to PDF, and keeps recording in the background
+  or with the screen off (it shows a notification while it records).
 - `build-apk.sh` - makes the APK. The comments at the top list what it needs.
 
 ## The signing key

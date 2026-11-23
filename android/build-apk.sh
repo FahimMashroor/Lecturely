@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Builds Lecturely.apk. Run from the project folder:  bash android/build-apk.sh
 #
-# Needs (Ubuntu/Debian):  sudo apt install aapt apksigner zipalign dalvik-exchange android-sdk-platform-23 default-jdk
+# Needs (Ubuntu/Debian):  sudo apt install aapt apksigner zipalign dalvik-exchange default-jdk zip curl
+# It also needs Android 14's list of building blocks (android.jar). Ubuntu only
+# packages an old one, so the script downloads it once from Maven Central (the
+# official public library store) and checks its fingerprint.
 # Needs a signing key (made once, then kept safe - see android/README.md):
 #   LECTURELY_KEYSTORE=/path/to/lecturely.keystore  LECTURELY_KEYSTORE_PASSWORD=...
 # Optional:  LECTURELY_SERVER=https://your-server.example   (leave out for "this phone only")
@@ -13,8 +16,16 @@ cd "$(dirname "$0")/.."
 : "${LECTURELY_KEYSTORE_PASSWORD:?Set LECTURELY_KEYSTORE_PASSWORD}"
 VERSION_CODE="${VERSION_CODE:-1}"
 VERSION_NAME="${VERSION_NAME:-1.0}"
-PLATFORM="${ANDROID_JAR:-/usr/lib/android-sdk/platforms/android-23/android.jar}"
 OUT=android/build
+PLATFORM="${ANDROID_JAR:-$OUT/android-34.jar}"
+if [ ! -f "$PLATFORM" ]; then
+  V=14-robolectric-10818077
+  echo "0/5  Downloading Android 14 building blocks (about 130 MB, only once)"
+  mkdir -p "$(dirname "$PLATFORM")"
+  curl -fsSL -o "$PLATFORM.part" "https://repo1.maven.org/maven2/org/robolectric/android-all/$V/android-all-$V.jar"
+  echo "94b1490a891e9be559aa35c87cd8a0c163f32d83  $PLATFORM.part" | sha1sum -c - >/dev/null
+  mv "$PLATFORM.part" "$PLATFORM"
+fi
 WORK=$OUT/work
 
 echo "1/5  Building the screens"

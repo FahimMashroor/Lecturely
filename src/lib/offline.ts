@@ -3,57 +3,67 @@ import { isApp } from "./native";
 
 type Progress = (pct: number) => void;
 
-const SPEECH_MODEL = "onnx-community/whisper-base";
-// A bigger engine trained only on English. It makes clearly fewer mistakes on
-// English (all accents) than the all-languages engine above, but knows no other language.
-const ENGLISH_MODEL = "Xenova/whisper-small.en";
 const NOTES_MODEL = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
 
-let asr: any = null;
-let asrEn: any = null;
 let llm: any = null;
 
 export const hasWebGPU = () => typeof navigator !== "undefined" && "gpu" in navigator;
 
-export async function loadSpeech(onProgress?: Progress, english = false) {
-  if (english ? asrEn : asr) return english ? asrEn : asr;
-  const { pipeline, env } = await import("@huggingface/transformers");
-  // The Android app carries the speech engine's program files inside itself,
-  // so they are not fetched from the internet (the website loads them from a public file host).
-  if (isApp) {
-    (env as any).backends.onnx.wasm.wasmPaths = {
-      mjs: "/ort/ort-wasm-simd-threaded.asyncify.mjs",
-      wasm: "/ort/ort-wasm-simd-threaded.asyncify.wasm",
-    };
-  }
-  const files: Record<string, { loaded: number; total: number }> = {};
-  // The English engine always uses the compact files (about 250 MB). Its full-size files are about 1 GB.
-  const gpu = hasWebGPU() && !english;
-  const p = await pipeline("automatic-speech-recognition", english ? ENGLISH_MODEL : SPEECH_MODEL, {
-    device: gpu ? "webgpu" : "wasm",
-    dtype: gpu ? "fp32" : "q8",
-    progress_callback: (p: any) => {
-      if (p.status === "progress" && p.file) {
-        files[p.file] = { loaded: p.loaded, total: p.total };
-        const all = Object.values(files);
-        const tot = all.reduce((a, f) => a + f.total, 0);
-        onProgress?.(tot ? Math.round((all.reduce((a, f) => a + f.loaded, 0) / tot) * 100) : 0);
-      }
-    },
-  } as any);
-  if (english) asrEn = p; else asr = p;
-  onProgress?.(100);
-  return p;
+// The speech engine works in a separate helper (see speech.worker.ts), so the
+// screen keeps scrolling and reacting to taps while a lecture is being written.
+let worker: Worker | null = null;
+let nextId = 0;
+const calls = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; onProgress?: Progress | undefined }>();
+const loaded = { base: false, en: false };
+
+function helper() {
+  if (worker) return worker;
+  const w = new Worker(new URL("./speech.worker.ts", import.meta.url), { type: "module" });
+  w.onmessage = (ev: MessageEvent<{ id: number; type: string; pct?: number; text?: string; message?: string }>) => {
+    const m = ev.data;
+    const c = calls.get(m.id);
+    if (!c) return;
+    if (m.type === "progress") { c.onProgress?.(m.pct ?? 0); return; }
+    calls.delete(m.id);
+    if (m.type === "done") c.resolve(m.text ?? "");
+    else c.reject(new Error(m.message || "speech"));
+  };
+  w.onerror = () => {
+    // The helper stopped unexpectedly (for example the phone ran out of memory).
+    // Tell everyone who was waiting, and start a fresh helper next time.
+    calls.forEach((c) => c.reject(new Error("speech")));
+    calls.clear();
+    loaded.base = loaded.en = false;
+    w.terminate();
+    if (worker === w) worker = null;
+  };
+  worker = w;
+  return w;
 }
 
-export const speechReady = () => !!asr;
+function ask(msg: Record<string, unknown>, onProgress?: Progress, transfer: Transferable[] = []) {
+  const id = ++nextId;
+  return new Promise<string>((resolve, reject) => {
+    calls.set(id, { resolve, reject, onProgress });
+    helper().postMessage({ ...msg, id, isApp }, transfer);
+  });
+}
+
+export async function loadSpeech(onProgress?: Progress, english = false) {
+  await ask({ type: "load", english }, onProgress);
+  if (english) loaded.en = true; else loaded.base = true;
+  onProgress?.(100);
+}
+
+export const speechReady = () => loaded.base;
 export const notesReady = () => !!llm;
 
 async function toPcm(blob: Blob) {
   const ctx = new AudioContext({ sampleRate: 16000 });
   try {
     const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
-    return buf.getChannelData(0);
+    // A copy, so it can be handed over to the helper.
+    return new Float32Array(buf.getChannelData(0));
   } finally { ctx.close(); }
 }
 
@@ -66,11 +76,8 @@ export const canWriteHere = (lang?: string) => {
 export async function transcribeOffline(blob: Blob, lang?: string) {
   // English lectures use the English engine when its pack was downloaded.
   const english = lang === "en" && !!getPacks().speechEn;
-  const p = await loadSpeech(undefined, english);
   const audio = await toPcm(blob);
-  // The English engine must not be told a language: it only knows English.
-  const res = await p(audio, { chunk_length_s: 30, stride_length_s: 5, ...(english ? {} : { task: "transcribe", ...(lang ? { language: lang } : {}) }) });
-  return (Array.isArray(res) ? res[0]?.text : res?.text ?? "").trim() as string;
+  return (await ask({ type: "run", english, audio, lang }, undefined, [audio.buffer])).trim();
 }
 
 export async function loadNotes(onProgress?: Progress) {
